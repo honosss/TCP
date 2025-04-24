@@ -9,15 +9,11 @@ function ensureDirectoryExists(dirPath) {
 }
 
 async function processFileData(fileInfo) {
-  const fullPath = path.join(
-    config.paths.baseDataDir,
-    fileInfo.subDir || config.paths.defaultSubDir
-  );
-  
-  ensureDirectoryExists(fullPath);
-  
+  // Chỉ sử dụng baseDataDir, bỏ qua subDir
+  const fullPath = config.paths.baseDataDir; 
+  ensureDirectoryExists(fullPath); // Chỉ tạo baseDataDir nếu chưa tồn tại
   const filePath = path.join(fullPath, fileInfo.fileName);
-  fs.writeFileSync(filePath, fileInfo.content, 'UTF8');
+  await fs.promises.writeFile(filePath, fileInfo.content, 'UTF8');
 }
 
 module.exports = {

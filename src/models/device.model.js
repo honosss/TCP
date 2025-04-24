@@ -8,7 +8,9 @@ class DeviceModel {
       const fileName = this._generateFileName(dataStr);
       const subDir = this._getSubDirectory(dataStr);
       const content = dataStr.substring(dataStr.indexOf('*') + 1, dataStr.indexOf('#'));
-      
+      // console.log('File name:', fileName);
+      // console.log('Sub-directory:', subDir);
+      // console.log('Content:', content);
       return { fileName, subDir, content };
     }
   
@@ -16,7 +18,9 @@ class DeviceModel {
       const filePart = dataStr.slice(4, dataStr.indexOf('*') + 1);
       const timePart = '20' + filePart.substring(filePart.indexOf(',') + 1, filePart.indexOf('*'));
       const prefix = dataStr.slice(4, dataStr.indexOf('*') - 13);
-      
+      // console.log('Prefix:', prefix);
+      // console.log('Time part:', timePart);
+      // console.log('File part:', filePart);
       return `${prefix}_${timePart}.txt`;
     }
   

@@ -8,10 +8,10 @@ const logger = createLogger({
       return `[${level.toUpperCase()}] ${message}`;
     })
   ),
-  // transports: [
-  //   new transports.Console(),
-  //   new transports.File({ filename: 'logs/tcp-server.log' })
-  // ]
+  transports: [
+    new transports.Console(),
+    new transports.File({ filename: 'logs/tcp-server.log' })
+  ]
 });
 
 module.exports = logger;

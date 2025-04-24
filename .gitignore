@@ -4,3 +4,5 @@ node_modules/
 .env
 # Bỏ qua log files
 logs/
+# Bỏ qua thư mục test
+test/
