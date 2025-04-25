@@ -1,21 +1,23 @@
-// src/services/data-processor.js
 const chokidar = require('chokidar');
 const fs = require('fs/promises');
 const path = require('path');
 const mqttClient = require('../helpers/connectMqtt');
-const arrayProcessor = require('../helpers/splice-array');
 const config = require('../config/server.config');
 const logger = require('../utils/logger');
+const DeviceMQTTModel = require('../models/device.mqtt.model');
 
 class DataProcessor {
-  constructor(inputDir, multiDir) {
-    this.watchers = [];
+  constructor(inputDir) {
+    this.watcher = null;
     this.inputDir = inputDir;
-    this.multiDir = multiDir;
   }
 
   async init() {
-    this._initFileWatchers();
+    // Kiểm tra các file đã có trong thư mục và xử lý chúng
+    await this._checkExistingFiles();
+    // Thiết lập file watcher để theo dõi file mới
+    this._initFileWatcher();
+    // Kiểm tra kết nối MQTT
     await this._testMqttConnection();
   }
 
@@ -29,25 +31,41 @@ class DataProcessor {
     });
   }
 
-  _initFileWatchers() {
-    this.watchers.push(
-      chokidar.watch(this.inputDir)
-        .on('add', (path) => this._processFile(path, 5))
-    );
-
-    this.watchers.push(
-      chokidar.watch(this.multiDir)
-        .on('add', (path) => this._processFile(path, 6))
-    );
+  // Quét thư mục để kiểm tra các file đang tồn tại
+  async _checkExistingFiles() {
+    try {
+      const files = await fs.readdir(this.inputDir);
+      for (const file of files) {
+        if (path.extname(file) === '.txt') {
+          const filePath = path.join(this.inputDir, file);
+          console.log(`Existing file: ${filePath} - processing...`);
+          await this._processFile(filePath);
+        }
+      }
+    } catch (err) {
+      logger.error(`Error reading directory ${this.inputDir}:`, err);
+    }
   }
 
-  async _processFile(filePath, columns) {
+  _initFileWatcher() {
+    this.watcher = chokidar.watch(this.inputDir, {
+      ignored: /(^|[\/\\])\../,
+      persistent: true
+    }).on('add', (filePath) => {
+      if (path.extname(filePath) === '.txt') {
+        console.log(`File added: ${filePath}`);
+        this._processFile(filePath);
+      }
+    });
+  }
+
+  async _processFile(filePath) {
     try {
       const content = await fs.readFile(filePath, 'utf8');
-      const data = this._parseContent(content, columns);
+      const data = this._parseContent(content);
       const metadata = this._extractMetadata(filePath);
 
-      await this._publishData(data, metadata, columns === 6);
+      await this._publishData(data, metadata);
       await this._archiveFile(filePath, metadata);
 
       logger.info(`Processed: ${path.basename(filePath)}`);
@@ -56,43 +74,54 @@ class DataProcessor {
     }
   }
 
-  _parseContent(content, columns) {
-    // Tách từng dòng, loại bỏ dòng trống và dòng không đủ số cột
+  _parseContent(content) {
     return content
       .split(/\r?\n/)
       .map(line => line.trim())
-      .filter(line => line && line[0] !== '#' && line[0] !== '$')
-      .map(line => line.split(/\s+/)) // <-- tách theo mọi khoảng trắng (tab hoặc nhiều dấu cách)
-      .filter(arr => arr.length >= columns);
-  }
-  _extractMetadata(filePath) {
-    const filename = path.basename(filePath, '.txt');
-    const parts = filename.split('_');
-    const timestamp = parts.pop(); // phần cuối là timestamp
-    const deviceId = parts.join('_'); // ghép lại phần còn lại thành deviceId đầy đủ
-    return { deviceId, timestamp };
+      .filter(line => line && !line.startsWith('#'))
+      .map(line => line.split(/\s+/));
   }
 
-  async _publishData(data, { deviceId }, isMulti) {
+  _extractMetadata(filePath) {
+  // Lấy tên file không có đuôi .txt
+  const filename = path.basename(filePath, '.txt');
+  // Giả sử tên file có định dạng "DEVICEID_TIMESTAMP"
+  const parts = filename.split('_');
+  const timestamp = parts.pop(); // Phần cuối cùng là timestamp
+  const deviceId = parts.join('_'); // Phần còn lại là deviceId đầy đủ
+  return { deviceId, timestamp };
+  }
+
+  async _publishData(data, { deviceId }) {
     for (const row of data) {
-      const topic = 'SYS/AI_DATA';
-      const payload = this._createPayload(row, deviceId, isMulti);
-      console.log(payload); 
-      await mqttClient.publishAsync(topic, payload);
-      logger.debug(`Published: ${payload}`);
+      try {
+        if (row.length < 5) {
+          logger.warn(`Skipping invalid row: ${row.join(' ')}`);
+          continue;
+        }
+
+        const topic = 'SYS/AI_DATA';
+        const payload = this._createPayload(row, deviceId);
+        await mqttClient.publishAsync(topic, payload);
+        logger.debug(`Published: ${payload}`);
+      } catch (err) {
+        logger.error(`Publish failed: ${err.message}`);
+      }
     }
   }
 
-  _createPayload(row, deviceId, isMulti) {
+  _createPayload(row, deviceId) {
+    const isSixColumnFormat = row.length >= 6;
+
     return JSON.stringify({
       Type: "Tech09",
-      Device_id: isMulti ? `${deviceId}_${row[0]}` : deviceId,
-      Time: row[3],
+      Device_id: deviceId,
+      Time: isSixColumnFormat ? row[4] : row[3],
       Data: [{
-        CN: row[1],
-        V: parseFloat(row[2]),
-        U: row[4],
-        St: row[5] || '0'
+        CN: isSixColumnFormat ? row[1] : row[0],
+        V: parseFloat(isSixColumnFormat ? row[2] : row[1]),
+        U: isSixColumnFormat ? row[3] : row[2],
+        St: (isSixColumnFormat ? row[5] : row[4]) || '0'
       }]
     });
   }
@@ -101,9 +130,9 @@ class DataProcessor {
     const archivePath = path.join(
       config.dataPaths.archive,
       deviceId,
-      timestamp.slice(0, 4),  // Year
-      timestamp.slice(4, 6),  // Month
-      timestamp.slice(6, 8),  // Day
+      timestamp.slice(0, 4),
+      timestamp.slice(4, 6),
+      timestamp.slice(6, 8),
       path.basename(filePath)
     );
 
@@ -112,7 +141,7 @@ class DataProcessor {
   }
 
   async shutdown() {
-    this.watchers.forEach(watcher => watcher.close());
+    if (this.watcher) this.watcher.close();
     logger.info('Data service stopped');
   }
 }

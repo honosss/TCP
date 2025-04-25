@@ -12,8 +12,8 @@ module.exports = {
     }
   },
   paths: {
-    baseDataDir: process.env.DATA_DIR ,
-    defaultSubDir: process.env.DATA_DIR_SUB ,
+    baseDataDir: process.env.DATA_DIR 
+    //defaultSubDir: process.env.DATA_DIR_SUB ,
   },
   dataPaths: {
     input: 'D:/MeesApp/FTPtechnolog/',
