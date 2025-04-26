@@ -1,7 +1,7 @@
 // convert.js
 const DataProcessor = require('./src/services/data-processor');
 const config = require('./src/config/server.config');
-const logger = require('./src/utils/logger');
+const {mqttLogger} = require('./src/utils/logger');
 // Khởi tạo và chạy service xử lý dữ liệu
 const dataProcessor = new DataProcessor(
   config.dataPaths.input,
@@ -10,10 +10,10 @@ const dataProcessor = new DataProcessor(
 
 dataProcessor.init()
   .then(() => {
-    logger.info('Data conversion service started');
+    mqttLogger.info('Data conversion service started');
   })
   .catch((err) => {
-    logger.error('Failed to start data service:', err);
+    mqttLogger.error('Failed to start data service:', err);
     process.exit(1);
   });
 

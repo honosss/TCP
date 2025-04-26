@@ -1,5 +1,5 @@
 const TCPServer = require('./src/services/tcp.service');
-const logger = require('./src/utils/logger');
+const {logger} = require('./src/utils/logger');
 const config = require('./src/config/server.config');
 
 const server = new TCPServer();

@@ -3,7 +3,7 @@ const fs = require('fs/promises');
 const path = require('path');
 const mqttClient = require('../helpers/connectMqtt');
 const config = require('../config/server.config');
-const logger = require('../utils/logger');
+const {mqttLogger} = require('../utils/logger');
 const DeviceMQTTModel = require('../models/device.mqtt.model');
 
 class DataProcessor {
@@ -25,7 +25,7 @@ class DataProcessor {
     return new Promise((resolve) => {
       mqttClient.on('connect', resolve);
       mqttClient.on('error', (err) => {
-        logger.error('MQTT connection failed:', err);
+        mqttLogger.error('MQTT connection failed:', err);
         process.exit(1);
       });
     });
@@ -43,7 +43,7 @@ class DataProcessor {
         }
       }
     } catch (err) {
-      logger.error(`Error reading directory ${this.inputDir}:`, err);
+      mqttLogger.error(`Error reading directory ${this.inputDir}:`, err);
     }
   }
 
@@ -68,9 +68,9 @@ class DataProcessor {
       await this._publishData(data, metadata);
       await this._archiveFile(filePath, metadata);
 
-      logger.info(`Processed: ${path.basename(filePath)}`);
+      mqttLogger.info(`Processed: ${path.basename(filePath)}`);
     } catch (err) {
-      logger.error(`Error processing ${filePath}:`, err);
+      mqttLogger.error(`Error processing ${filePath}:`, err);
     }
   }
 
@@ -92,38 +92,82 @@ class DataProcessor {
   return { deviceId, timestamp };
   }
 
-  async _publishData(data, { deviceId }) {
-    for (const row of data) {
-      try {
-        if (row.length < 5) {
-          logger.warn(`Skipping invalid row: ${row.join(' ')}`);
-          continue;
-        }
-
-        const topic = 'SYS/AI_DATA';
-        const payload = this._createPayload(row, deviceId);
-        await mqttClient.publishAsync(topic, payload);
-        logger.debug(`Published: ${payload}`);
-      } catch (err) {
-        logger.error(`Publish failed: ${err.message}`);
+  async _publishData(data, { deviceId, timestamp }) {
+    // Tạo mảng chứa các đối tượng dữ liệu từ từng dòng trong file
+    const formattedData = data.reduce((acc, row) => {
+      if (row.length !== 5 && row.length !== 6) {
+        mqttLogger.warn(`Skipping invalid row: ${row.join(' ')}`);
+        return acc;
       }
-    }
-  }
-
-  _createPayload(row, deviceId) {
-    const isSixColumnFormat = row.length >= 6;
-
-    return JSON.stringify({
+  
+      let entry;
+      if (row.length === 5) {
+        // File 5 cột: [CN, V, U, Time, St]
+        entry = {
+          CN: row[0],
+          V: parseFloat(row[1]),
+          U: row[2],
+          St: row[4] || '0'
+        };
+      } else if (row.length === 6) {
+        // File 6 cột: [Station, CN, V, U, Time, St]
+        entry = {
+          STA: row[0],
+          CN: row[1],
+          V: parseFloat(row[2]),
+          U: row[3],
+          St: row[5] || '0'
+        };
+      }
+      
+      acc.push(entry);
+      return acc;
+    }, []);
+  
+    // Tạo payload JSON chứa toàn bộ dữ liệu trong file với 1 "Time" duy nhất (từ metadata)
+    const payload = JSON.stringify({
       Type: "Tech09",
       Device_id: deviceId,
-      Time: isSixColumnFormat ? row[4] : row[3],
-      Data: [{
-        CN: isSixColumnFormat ? row[1] : row[0],
-        V: parseFloat(isSixColumnFormat ? row[2] : row[1]),
-        U: isSixColumnFormat ? row[3] : row[2],
-        St: (isSixColumnFormat ? row[5] : row[4]) || '0'
-      }]
+      Time: timestamp, // Global time của file
+      Data: formattedData
     });
+  
+    const topic = 'SYS/AI_DATA';
+    await mqttClient.publishAsync(topic, payload);
+    console.log(payload);
+    mqttLogger.debug(`Published: ${payload}`);
+  }
+  
+  _createPayload(row, deviceId) {
+    let payloadObject;
+    if (row.length === 5) {
+      // File 5 cột: [CN, V, U, Time, St] - Loại bỏ "Time"
+      payloadObject = {
+        Type: "Tech09",
+        Device_id: deviceId,
+        // Không gán Time ở đây vì sẽ dùng global
+        Data: [{
+          CN: row[0],
+          V: parseFloat(row[1]),
+          U: row[2],
+          St: row[4] || '0'
+        }]
+      };
+    } else if (row.length === 6) {
+      // File 6 cột: [Station, CN, V, U, Time, St] - Loại bỏ "Time"
+      payloadObject = {
+        Type: "Tech09",
+        Device_id: deviceId,
+        Data: [{
+          STA: row[0],
+          CN: row[1],
+          V: parseFloat(row[2]),
+          U: row[3],
+          St: row[5] || '0'
+        }]
+      };
+    }
+    return JSON.stringify(payloadObject);
   }
 
   async _archiveFile(filePath, { deviceId, timestamp }) {
@@ -142,7 +186,7 @@ class DataProcessor {
 
   async shutdown() {
     if (this.watcher) this.watcher.close();
-    logger.info('Data service stopped');
+    mqttLogger.info('Data service stopped');
   }
 }
 

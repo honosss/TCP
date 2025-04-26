@@ -2,7 +2,7 @@ const net = require('net');
 const config = require('../config/server.config');
 const TCPController = require('../controllers/tcp.controller');
 const SocketHelper = require('../helpers/socket.helper');
-const logger = require('../utils/logger');
+const {logger} = require('../utils/logger');
 
 class TCPServer {
   constructor() {
