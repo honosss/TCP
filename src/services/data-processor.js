@@ -4,7 +4,7 @@ const path = require('path');
 const mqttClient = require('../helpers/connectMqtt');
 const config = require('../config/server.config');
 const {mqttLogger} = require('../utils/logger');
-const DeviceMQTTModel = require('../models/device.mqtt.model');
+
 
 class DataProcessor {
   constructor(inputDir) {
@@ -135,7 +135,7 @@ class DataProcessor {
     const topic = 'SYS/AI_DATA';
     await mqttClient.publishAsync(topic, payload);
     console.log(payload);
-    mqttLogger.debug(`Published: ${payload}`);
+   //mqttLogger.debug(`Published: ${payload}`);
   }
   
   _createPayload(row, deviceId) {
